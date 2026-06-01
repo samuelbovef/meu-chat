@@ -1,0 +1,26 @@
+# Ambiente Virtual do Python
+venv/
+env/
+ENV/
+.venv/
+
+# Arquivos de Banco de Dados Local
+chat_history.db
+*.db
+*.sqlite3
+
+# Arquivos de Configuração Sensíveis (Segurança)
+.env
+
+# Arquivos temporários e Cache do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Arquivos de sistema ou do editor de código
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

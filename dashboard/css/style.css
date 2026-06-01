@@ -1,0 +1,567 @@
+/* ==========================================
+   IMPORTAÇÃO DE FONTE CORPORATIVA
+   ========================================== */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* Reseta as margens padrão do navegador */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+    height: 100vh;
+    background-color: #f1f5f9; /* Fundo cinza super claro e moderno */
+    color: #334155;
+}
+
+/* ==========================================
+   SCROLLBARS MODERNAS
+   ========================================== */
+::-webkit-scrollbar { 
+    width: 6px; 
+    height: 6px; 
+}
+::-webkit-scrollbar-track { 
+    background: transparent; 
+}
+::-webkit-scrollbar-thumb { 
+    background: #cbd5e1; 
+    border-radius: 4px; 
+}
+::-webkit-scrollbar-thumb:hover { 
+    background: #94a3b8; 
+}
+
+/* ==========================================
+   1. TELA DE LOGIN
+   ========================================== */
+.login-overlay {
+    position: fixed;
+    top: 0; 
+    left: 0; 
+    width: 100%; 
+    height: 100%;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.login-box {
+    background: #ffffff;
+    padding: 40px;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    width: 380px;
+}
+
+.login-box h2 { 
+    margin-bottom: 8px; 
+    color: #0f172a; 
+    font-weight: 700; 
+    font-size: 24px; 
+}
+
+.login-box p { 
+    margin-bottom: 24px; 
+    color: #64748b; 
+    font-size: 14px; 
+}
+
+.login-box input {
+    width: 100%; 
+    padding: 14px; 
+    margin-bottom: 20px;
+    border: 1px solid #e2e8f0; 
+    border-radius: 8px; 
+    font-size: 15px; 
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.login-box input:focus { 
+    border-color: #3b82f6; 
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); 
+}
+
+.login-box button {
+    width: 100%; 
+    padding: 14px; 
+    background-color: #2563eb; 
+    color: white;
+    border: none; 
+    border-radius: 8px; 
+    font-size: 15px; 
+    cursor: pointer; 
+    font-weight: 600; 
+    transition: all 0.2s ease;
+}
+
+.login-box button:hover { 
+    background-color: #1d4ed8; 
+    transform: translateY(-1px); 
+}
+
+/* ==========================================
+   2. LAYOUT PRINCIPAL (3 COLUNAS)
+   ========================================== */
+.dashboard-wrapper {
+    display: flex;
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* --- COLUNA ESQUERDA: Sidebar --- */
+.sidebar {
+    width: 280px; 
+    background-color: #0f172a; /* Slate 900 */
+    color: #f8fafc;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #1e293b;
+}
+
+.sidebar h2 {
+    padding: 24px 20px;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    border-bottom: 1px solid #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Abas de Fila e Histórico */
+.tabs { 
+    display: flex; 
+    background-color: #0b1121; 
+    padding: 0 10px; 
+}
+
+.tab-btn {
+    flex: 1; 
+    padding: 16px 0; 
+    background: none; 
+    border: none;
+    color: #64748b; 
+    cursor: pointer; 
+    font-weight: 600; 
+    font-size: 13px;
+    border-bottom: 2px solid transparent; 
+    transition: all 0.2s;
+}
+
+.tab-btn:hover { 
+    color: #f1f5f9; 
+}
+
+.tab-btn.active { 
+    color: #38bdf8; 
+    border-bottom: 2px solid #38bdf8; 
+}
+
+.sidebar-header {
+    padding: 15px 20px 10px; 
+    font-size: 11px; 
+    color: #64748b;
+    text-transform: uppercase; 
+    font-weight: 700; 
+    letter-spacing: 0.5px;
+}
+
+.menu { 
+    list-style: none; 
+    overflow-y: auto; 
+    flex: 1; 
+    padding-bottom: 10px; 
+}
+
+.client-item {
+    padding: 14px 20px; 
+    cursor: pointer; 
+    border-left: 3px solid transparent;
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    transition: background-color 0.2s; 
+    font-size: 14px; 
+    font-weight: 500; 
+    color: #cbd5e1;
+}
+
+.client-item:hover { 
+    background-color: #1e293b; 
+    color: #ffffff; 
+}
+
+.client-item.active { 
+    background-color: #1e293b; 
+    border-left: 3px solid #38bdf8; 
+    color: #ffffff; 
+}
+
+.unread-badge {
+    background-color: #ef4444; 
+    color: white; 
+    border-radius: 12px;
+    padding: 2px 8px; 
+    font-size: 11px; 
+    font-weight: 700;
+}
+
+/* --- COLUNA CENTRAL: Área de Chat --- */
+.chat-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: #f8fafc;
+}
+
+.chat-header {
+    background-color: #ffffff; 
+    padding: 16px 24px; 
+    border-bottom: 1px solid #e2e8f0;
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02); 
+    z-index: 10;
+}
+
+.chat-header h3 { 
+    font-size: 16px; 
+    font-weight: 600; 
+    color: #0f172a; 
+    margin-bottom: 4px; 
+}
+
+.chat-header small { 
+    color: #64748b; 
+    font-size: 12px; 
+    font-weight: 500; 
+}
+
+.status-indicator { 
+    color: #10b981; 
+    font-weight: 600; 
+    font-size: 13px; 
+    display: flex; 
+    align-items: center; 
+    gap: 6px;
+}
+
+.status-indicator::before {
+    content: ''; 
+    display: inline-block; 
+    width: 8px; 
+    height: 8px;
+    background-color: #10b981; 
+    border-radius: 50%;
+}
+
+.btn-danger {
+    padding: 8px 16px; 
+    background-color: #fee2e2; 
+    color: #ef4444; 
+    border: 1px solid #fecaca;
+    border-radius: 6px; 
+    cursor: pointer; 
+    font-weight: 600; 
+    font-size: 13px; 
+    transition: 0.2s;
+}
+
+.btn-danger:hover { 
+    background-color: #fca5a5; 
+    color: #b91c1c; 
+}
+
+.messages-area {
+    flex: 1; 
+    padding: 24px; 
+    overflow-y: auto; 
+    display: flex; 
+    flex-direction: column; 
+    gap: 12px;
+}
+
+.message-box { 
+    padding: 12px 16px; 
+    border-radius: 12px; 
+    max-width: 75%; 
+    line-height: 1.5; 
+    font-size: 14px; 
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    word-wrap: break-word; 
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+
+.msg-atendente { 
+    background-color: #2563eb; 
+    color: #ffffff; 
+    align-self: flex-end; 
+    border-bottom-right-radius: 4px; 
+}
+
+.msg-cliente { 
+    background-color: #ffffff; 
+    color: #334155; 
+    border: 1px solid #e2e8f0; 
+    align-self: flex-start; 
+    border-bottom-left-radius: 4px; 
+}
+
+.msg-sistema { 
+    color: #64748b; 
+    font-size: 12px; 
+    text-align: center; 
+    margin: 16px 0; 
+    align-self: center; 
+    font-weight: 500; 
+    background: #f1f5f9; 
+    padding: 6px 16px; 
+    border-radius: 20px;
+}
+
+.input-area {
+    padding: 20px 24px; 
+    background-color: #ffffff; 
+    border-top: 1px solid #e2e8f0; 
+    display: flex; 
+    gap: 12px; 
+    align-items: center;
+}
+
+#message-input {
+    flex: 1; 
+    padding: 14px 16px; 
+    border: 1px solid #cbd5e1; 
+    border-radius: 8px; 
+    outline: none; 
+    font-size: 14px; 
+    transition: border-color 0.2s; 
+    background-color: #f8fafc;
+}
+
+#message-input:focus { 
+    border-color: #3b82f6; 
+    background-color: #ffffff; 
+}
+
+#message-input:disabled { 
+    background-color: #f1f5f9; 
+    cursor: not-allowed; 
+    border-color: #e2e8f0;
+}
+
+#send-btn {
+    padding: 14px 24px; 
+    background-color: #2563eb; 
+    color: white; 
+    border: none;
+    border-radius: 8px; 
+    cursor: pointer; 
+    font-weight: 600; 
+    font-size: 14px; 
+    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+}
+
+#send-btn:hover:not(:disabled) { 
+    background-color: #1d4ed8; 
+    transform: translateY(-1px); 
+    box-shadow: 0 4px 6px rgba(37, 99, 235, 0.3); 
+}
+
+#send-btn:disabled { 
+    background-color: #93c5fd; 
+    cursor: not-allowed; 
+    box-shadow: none; 
+    transform: none;
+}
+
+/* --- COLUNA DIREITA: Ficha CRM --- */
+.crm-sidebar {
+    width: 320px;
+    background-color: #ffffff;
+    border-left: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+}
+
+.crm-header {
+    padding: 20px 24px; 
+    background-color: #f8fafc; 
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 700; 
+    color: #0f172a; 
+    font-size: 14px; 
+    text-transform: uppercase; 
+    letter-spacing: 0.5px;
+}
+
+.crm-content { 
+    flex: 1; 
+    padding: 24px; 
+    overflow-y: auto; 
+}
+
+.info-group { 
+    margin-bottom: 24px; 
+    background: #f8fafc; 
+    padding: 16px; 
+    border-radius: 8px; 
+    border: 1px solid #e2e8f0; 
+}
+
+.info-group label { 
+    display: block; 
+    font-size: 11px; 
+    color: #64748b; 
+    text-transform: uppercase; 
+    margin-bottom: 6px; 
+    font-weight: 700; 
+    letter-spacing: 0.5px;
+}
+
+.info-group p { 
+    font-size: 14px; 
+    color: #0f172a; 
+    font-weight: 600; 
+    word-break: break-all; 
+}
+
+.crm-actions { 
+    padding: 20px 24px; 
+    border-top: 1px solid #e2e8f0; 
+    background-color: #f8fafc; 
+    display: flex; 
+    flex-direction: column; 
+    gap: 15px;
+}
+
+#transfer-area, #note-area {
+    background: #ffffff !important;
+    padding: 16px !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+}
+
+#transfer-area label, #note-area label {
+    font-size: 11px !important; 
+    color: #64748b !important; 
+    font-weight: 700 !important; 
+    letter-spacing: 0.5px;
+}
+
+#transfer-select, #note-input {
+    width: 100%; 
+    padding: 10px 12px !important; 
+    margin-top: 8px !important; 
+    border: 1px solid #cbd5e1 !important; 
+    border-radius: 6px !important; 
+    font-size: 13px !important;
+    outline: none; 
+    transition: 0.2s; 
+    background-color: #f8fafc;
+}
+
+#transfer-select:focus, #note-input:focus { 
+    border-color: #3b82f6 !important; 
+    background-color: #ffffff; 
+}
+
+#btn-transferir {
+    background-color: #f59e0b !important; 
+    color: white !important; 
+    font-weight: 600 !important;
+    border-radius: 6px !important; 
+    padding: 10px !important; 
+    transition: all 0.2s !important;
+}
+
+#btn-transferir:hover { 
+    background-color: #d97706 !important; 
+    transform: translateY(-1px); 
+}
+
+#btn-nota {
+    background-color: #334155 !important; 
+    color: white !important; 
+    font-weight: 600 !important;
+    border-radius: 6px !important; 
+    padding: 10px !important; 
+    transition: all 0.2s !important;
+}
+
+#btn-nota:hover { 
+    background-color: #1e293b !important; 
+    transform: translateY(-1px); 
+}
+
+#btn-encerrar-atendimento {
+    width: 100%; 
+    padding: 14px; 
+    background-color: #ef4444; 
+    color: white; 
+    border: none; 
+    border-radius: 8px; 
+    font-weight: 600; 
+    cursor: pointer; 
+    transition: all 0.2s; 
+    font-size: 14px;
+    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);
+}
+
+#btn-encerrar-atendimento:hover { 
+    background-color: #dc2626; 
+    transform: translateY(-1px); 
+    box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3); 
+}
+
+/* ==========================================
+   ESTILOS DO DASHBOARD (MÉTRICAS)
+   ========================================== */
+.metric-card {
+    background-color: #ffffff;
+    padding: 24px;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    border-top: 4px solid #3b82f6;
+    text-align: center;
+}
+
+.metric-card h4 {
+    font-size: 13px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+
+.metric-card p {
+    font-size: 28px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.metric-card:nth-child(2) { 
+    border-top-color: #10b981; 
+}
+
+.metric-card:nth-child(3) { 
+    border-top-color: #f59e0b; 
+}
+
+.metric-card:nth-child(4) { 
+    border-top-color: #8b5cf6; 
+}

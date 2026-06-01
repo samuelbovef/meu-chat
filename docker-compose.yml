@@ -1,0 +1,33 @@
+# ==========================================
+# ORQUESTRAÇÃO DE CONTAINERS (DOCKER COMPOSE)
+# ==========================================
+version: '3.8'
+
+services:
+  backend-chat:
+    build: .
+    container_name: chat_enterprise_backend
+    
+    # Mapeamento de portas (Host:Container)
+    ports:
+      - "8000:8000"
+      
+    # ==========================================
+    # VOLUMES E PERSISTÊNCIA DE DADOS
+    # ==========================================
+    volumes:
+      # Sincroniza a pasta local do seu PC com o container.
+      # Isso garante que a base de dados (chat_history.db) e as alterações 
+      # de código não sejam perdidas ao derrubar o container.
+      - .:/app
+      
+    # ==========================================
+    # VARIÁVEIS DE AMBIENTE
+    # ==========================================
+    environment:
+      - SECRET_KEY=sua_chave_mega_secreta_para_producao_aqui
+      - ALGORITHM=HS256
+      
+    # Política de reinicialização: O container reiniciará automaticamente
+    # em caso de falha, a menos que seja parado manualmente.
+    restart: unless-stopped
