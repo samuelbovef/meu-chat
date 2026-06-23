@@ -43,7 +43,11 @@ ALGORITHM = os.getenv("ALGORITHM", "HS256")
 # Cria as tabelas no banco de dados, caso não existam
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Servidor de Chat Profissional com CRM")
+app = FastAPI(
+    title="Servidor de Chat Profissional com CRM",
+    docs_url=None if os.getenv("DOCS_URL") == "None" else "/docs",
+    redoc_url=None if os.getenv("REDOC_URL") == "None" else "/redoc"
+)
 
 # Configuração de CORS para permitir requisições do frontend
 app.add_middleware(
@@ -147,8 +151,12 @@ def create_access_token(data: dict):
 
 
 @app.post("/register")
-def register_attendant(username: str, password: str, role: str = "atendente", db: Session = Depends(get_db)):
-    """Rota para registrar novos atendentes (ou administradores/masters)."""
+def register_attendant(username: str, password: str, role: str = "atendente", master_key: str = None, db: Session = Depends(get_db)):
+    """Rota para registrar novos atendentes com validação de segurança de Chave Mestra."""
+    # 🔒 Camada extra anti-engenharia reversa: Exige a senha mestra para criar usuários
+    if master_key != "Samuel#Pro@Seguro$2026":
+        raise HTTPException(status_code=403, detail="Acesso proibido. Chave mestra inválida.")
+
     db_user = db.query(AttendantDB).filter(AttendantDB.username == username).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Usuário já existe")
