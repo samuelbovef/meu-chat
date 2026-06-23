@@ -154,7 +154,7 @@ def create_access_token(data: dict):
 def register_attendant(username: str, password: str, role: str = "atendente", master_key: str = None, db: Session = Depends(get_db)):
     """Rota para registrar novos atendentes com validação de segurança de Chave Mestra."""
     # 🔒 Camada extra anti-engenharia reversa: Exige a senha mestra para criar usuários
-    if master_key != "Samuel#Pro@Seguro$2026":
+    if master_key != "REGISTRATION_MASTER_KEY":
         raise HTTPException(status_code=403, detail="Acesso proibido. Chave mestra inválida.")
 
     db_user = db.query(AttendantDB).filter(AttendantDB.username == username).first()
