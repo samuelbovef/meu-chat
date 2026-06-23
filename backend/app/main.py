@@ -49,18 +49,15 @@ app = FastAPI(
     redoc_url=None if os.getenv("REDOC_URL") == "None" else "/redoc"
 )
 
-# Lista base de origens permitidas (apenas local para testes)
-ALLOWED_ORIGINS = ["http://localhost:8000", "http://127.0.0.1:8000"]
-
-# Puxa a URL secreta do painel direto do Render (Sem expor no GitHub)
-frontend_url = os.getenv("FRONTEND_URL")
-if frontend_url:
-    ALLOWED_ORIGINS.append(frontend_url)
-
-# Configuração de CORS para permitir requisições do frontend
+# Configuração definitiva de CORS (Aceita PC Local e Cloudflare Pages)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS, 
+    allow_origins=[
+        "http://localhost:8000", 
+        "http://127.0.0.1:8000", 
+        "null" 
+    ],
+    allow_origin_regex=r"https://.*\.pages\.dev",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
