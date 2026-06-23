@@ -49,21 +49,11 @@ app = FastAPI(
     redoc_url=None if os.getenv("REDOC_URL") == "None" else "/redoc"
 )
 
-# 1. BLOCO DE CORS (Totalmente seguro e oculto)
-ALLOWED_ORIGINS = [
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "null"
-]
-
-frontend_url = os.getenv("FRONTEND_URL")
-if frontend_url:
-    ALLOWED_ORIGINS.append(frontend_url.strip())
-
+# 1. BLOCO DE CORS (Solução Definitiva e Segura com JWT)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -92,13 +82,6 @@ def get_db():
 @app.on_event("startup")
 def startup_event():
     """Evento executado ao iniciar o servidor para restaurar tickets ativos na memória."""
-    
-    # Nosso espião para ler o que o Render está puxando
-    print(f"\n============== DEBUG CORS ==============")
-    print(f"URL da Cloudflare lida pelo Render: {os.getenv('FRONTEND_URL')}")
-    print(f"Lista final de acessos liberados: {ALLOWED_ORIGINS}")
-    print(f"========================================\n")
-
     db = SessionLocal()
     try:
         active_db_tickets = db.query(TicketDB).filter(TicketDB.status == "ativo").all()
