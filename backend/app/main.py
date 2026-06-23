@@ -117,10 +117,6 @@ def startup_event():
 
 
 def save_or_update_ticket(db: Session, session_id: str, dados: dict):
-# (Continue o resto do seu código daqui para baixo normalmente...)
-
-
-def save_or_update_ticket(db: Session, session_id: str, dados: dict):
     """Cria ou atualiza as informações de um ticket no banco de dados."""
     ticket = db.query(TicketDB).filter(TicketDB.session_id == session_id).first()
     
