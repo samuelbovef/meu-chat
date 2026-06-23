@@ -68,22 +68,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. EVENTO DE INICIALIZAÇÃO (Com o nosso espião de logs)
-@app.on_event("startup")
-def startup_event():
-    """Evento executado ao iniciar o servidor."""
-    
-    # Nosso espião para ler o que o Render está puxando
-    print(f"============== DEBUG CORS ==============")
-    print(f"URL da Cloudflare lida pelo Render: {os.getenv('FRONTEND_URL')}")
-    print(f"Lista final de acessos liberados: {ALLOWED_ORIGINS}")
-    print(f"========================================")
-    
-    db = SessionLocal()
-    try:
-        active_db_tickets = db.query(TicketDB).filter(TicketDB.status == "ativo").all()
-# ... (mantenha o resto da sua função startup_event intacta abaixo disso)
-
 # ==========================================
 # ESTADOS GLOBAIS EM MEMÓRIA
 # ==========================================
@@ -130,6 +114,10 @@ def startup_event():
             }
     finally:
         db.close()
+
+
+def save_or_update_ticket(db: Session, session_id: str, dados: dict):
+# (Continue o resto do seu código daqui para baixo normalmente...)
 
 
 def save_or_update_ticket(db: Session, session_id: str, dados: dict):
