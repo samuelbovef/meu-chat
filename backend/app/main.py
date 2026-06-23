@@ -108,6 +108,13 @@ def get_db():
 @app.on_event("startup")
 def startup_event():
     """Evento executado ao iniciar o servidor para restaurar tickets ativos na memória."""
+    
+    # Nosso espião para ler o que o Render está puxando
+    print(f"\n============== DEBUG CORS ==============")
+    print(f"URL da Cloudflare lida pelo Render: {os.getenv('FRONTEND_URL')}")
+    print(f"Lista final de acessos liberados: {ALLOWED_ORIGINS}")
+    print(f"========================================\n")
+
     db = SessionLocal()
     try:
         active_db_tickets = db.query(TicketDB).filter(TicketDB.status == "ativo").all()
