@@ -215,7 +215,7 @@ def save_feedback(session_id: str, feedback: FeedbackModel, db: Session = Depend
     raise HTTPException(status_code=404, detail="Ticket não encontrado")
 
 
-@app.get("/api/metrics")
+@app.get("/api/dados-painel")
 def get_metrics(token: str, db: Session = Depends(get_db)):
     """Calcula e retorna as métricas de atendimento (Acesso restrito: Master)."""
     try:
