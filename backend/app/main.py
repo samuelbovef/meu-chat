@@ -49,14 +49,13 @@ app = FastAPI(
     redoc_url=None if os.getenv("REDOC_URL") == "None" else "/redoc"
 )
 
-# Lista base segura
+# 1. BLOCO DE CORS (Totalmente seguro e oculto)
 ALLOWED_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-    "null" 
+    "null"
 ]
 
-# Puxa a URL de produção oficial
 frontend_url = os.getenv("FRONTEND_URL")
 if frontend_url:
     ALLOWED_ORIGINS.append(frontend_url.strip())
@@ -68,6 +67,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 2. EVENTO DE INICIALIZAÇÃO (Com o nosso espião de logs)
+@app.on_event("startup")
+def startup_event():
+    """Evento executado ao iniciar o servidor."""
+    
+    # Nosso espião para ler o que o Render está puxando
+    print(f"============== DEBUG CORS ==============")
+    print(f"URL da Cloudflare lida pelo Render: {os.getenv('FRONTEND_URL')}")
+    print(f"Lista final de acessos liberados: {ALLOWED_ORIGINS}")
+    print(f"========================================")
+    
+    db = SessionLocal()
+    try:
+        active_db_tickets = db.query(TicketDB).filter(TicketDB.status == "ativo").all()
+# ... (mantenha o resto da sua função startup_event intacta abaixo disso)
 
 # ==========================================
 # ESTADOS GLOBAIS EM MEMÓRIA
