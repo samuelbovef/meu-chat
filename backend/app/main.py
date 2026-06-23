@@ -21,7 +21,9 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.responses import Response
 from fastapi.responses import StreamingResponse
+
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import jwt
@@ -52,12 +54,20 @@ app = FastAPI(
 # 1. BLOCO DE CORS (Solução Definitiva e Segura com JWT)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],            
-    allow_credentials=False,       
-    allow_methods=["*"],            
-    allow_headers=["*"],            
-    expose_headers=["*"],           
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+@app.options("/{rest_of_path:path}")
+async def preflight_handler(request, rest_of_path: str):
+    response = Response()
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
 
 # ==========================================
 # ESTADOS GLOBAIS EM MEMÓRIA
