@@ -3,40 +3,38 @@ Módulo Principal da API (Servidor de Chat Profissional com CRM).
 
 Este arquivo gerencia:
 - Inicialização do servidor FastAPI.
-- Autenticação e registro de atendentes (JWT).
+- Autenticação e registro de atendentes baseada em JWT.
 - Geração de métricas e exportação de relatórios (CSV).
 - Gerenciamento de conexões em tempo real via WebSockets.
 - Regras de negócio de fila (Round-Robin) e transferência de chats.
 """
 
-import os
 import csv
 import io
+import os
 import random
 from datetime import datetime, timedelta
 
+import bcrypt
+import jwt
+from dotenv import load_dotenv
 from fastapi import (
-    FastAPI, WebSocket, WebSocketDisconnect, 
-    Depends, HTTPException, status
+    Depends, FastAPI, HTTPException, WebSocket, 
+    WebSocketDisconnect, status
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response, StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.responses import Response
-from fastapi.responses import StreamingResponse
-
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-import jwt
-import bcrypt  
-from dotenv import load_dotenv
 
 # Importações locais
-from .database import engine, Base, SessionLocal
-from .models import MessageDB, AttendantDB, TicketDB
+from .database import Base, SessionLocal, engine
+from .models import AttendantDB, MessageDB, TicketDB
 from .websocket import manager
 
 # ==========================================
-# CONFIGURAÇÃO DO AMBIENTE E BANCO
+# CONFIGURAÇÃO DO AMBIENTE E BANCO DE DADOS
 # ==========================================
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY", "chave_insegura_fallback")
@@ -51,7 +49,9 @@ app = FastAPI(
     redoc_url=None if os.getenv("REDOC_URL") == "None" else "/redoc"
 )
 
-# 1. BLOCO DE CORS (Solução Definitiva e Segura com JWT)
+# ==========================================
+# CONFIGURAÇÃO DE SEGURANÇA E CORS
+# ==========================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -61,13 +61,16 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+
 @app.options("/{rest_of_path:path}")
 async def preflight_handler(request, rest_of_path: str):
+    """Interceptador para requisições de preflight (CORS) do navegador."""
     response = Response()
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "*"
     return response
+
 
 # ==========================================
 # ESTADOS GLOBAIS EM MEMÓRIA
@@ -136,10 +139,10 @@ def save_or_update_ticket(db: Session, session_id: str, dados: dict):
 
 
 # ==========================================
-# SEGURANÇA E AUTENTICAÇÃO
+# AUTENTICAÇÃO E REGISTRO
 # ==========================================
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifica se a senha fornecida bate com o hash salvo."""
+    """Verifica se a senha fornecida corresponde ao hash salvo."""
     password_bytes = plain_password.encode('utf-8')
     hashed_password_bytes = hashed_password.encode('utf-8')
     return bcrypt.checkpw(password_bytes, hashed_password_bytes)
@@ -153,7 +156,7 @@ def get_password_hash(password: str) -> str:
     return hashed_password.decode('utf-8')
 
 
-def create_access_token(data: dict):
+def create_access_token(data: dict) -> str:
     """Cria um token JWT para o usuário com expiração de 8 horas."""
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(hours=8)
@@ -162,68 +165,76 @@ def create_access_token(data: dict):
 
 
 @app.post("/register")
-def register_attendant(username: str, password: str, role: str = "atendente", master_key: str = None, db: Session = Depends(get_db)):
-    """Rota para registrar novos atendentes com validação dinâmica via painel do Render."""
+def register_attendant(
+    username: str, 
+    password: str, 
+    role: str = "atendente", 
+    master_key: str = None, 
+    db: Session = Depends(get_db)
+):
+    """Registra novos atendentes com validação dinâmica via chave mestra."""
+    chave_verdadeira = os.getenv("REGISTRATION_MASTER_KEY", "REGISTRATION_MASTER_KEY")
     
-    # 🔒 Busca a chave real definida nas Environment Variables do Render.
-    # Se não encontrar nada lá, ele usa o padrão como segurança secundária.
-    CHAVE_VERDADEIRA = os.getenv("REGISTRATION_MASTER_KEY", "REGISTRATION_MASTER_KEY")
-    
-    if master_key != CHAVE_VERDADEIRA:
-        raise HTTPException(status_code=403, detail="Acesso proibido. Chave mestra inválida.")
+    if master_key != chave_verdadeira:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Acesso proibido. Chave mestra inválida."
+        )
 
     db_user = db.query(AttendantDB).filter(AttendantDB.username == username).first()
     if db_user:
-        raise HTTPException(status_code=400, detail="Usuário já existe")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuário já existe")
         
     hashed_pwd = get_password_hash(password)
     new_user = AttendantDB(username=username, hashed_password=hashed_pwd, role=role)
     db.add(new_user)
     db.commit()
+    
     return {"message": f"Usuário {username} ({role}) cadastrado com sucesso!"}
 
 
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Rota de login que retorna o token JWT caso as credenciais estejam corretas."""
+    """Rota de autenticação que retorna o token JWT."""
     user = db.query(AttendantDB).filter(AttendantDB.username == form_data.username).first()
+    
     if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Usuário ou senha incorretos")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário ou senha incorretos")
         
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     return {"access_token": access_token, "token_type": "bearer", "role": user.role}
 
 
 # ==========================================
-# ROTAS DE AVALIAÇÃO, MÉTRICAS E EXPORTAÇÃO
+# ROTAS DA API: FEEDBACK E MÉTRICAS
 # ==========================================
 class FeedbackModel(BaseModel):
-    """Modelo Pydantic para receber dados de avaliação do cliente."""
+    """Modelo de dados para receber a avaliação do cliente."""
     avaliacao: int
     resolvido: str
 
 
 @app.post("/api/feedback/{session_id}")
 def save_feedback(session_id: str, feedback: FeedbackModel, db: Session = Depends(get_db)):
-    """Salva a nota e a confirmação de resolução enviada pelo cliente no final do chat."""
+    """Salva a nota (CSAT) e a confirmação de resolução enviada pelo cliente."""
     ticket = db.query(TicketDB).filter(TicketDB.session_id == session_id).first()
     if ticket:
         ticket.avaliacao = feedback.avaliacao
         ticket.resolvido = feedback.resolvido
         db.commit()
         return {"msg": "Feedback salvo com sucesso"}
-    raise HTTPException(status_code=404, detail="Ticket não encontrado")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket não encontrado")
 
 
 @app.get("/api/dados-painel")
 def get_metrics(token: str, db: Session = Depends(get_db)):
-    """Calcula e retorna as métricas de atendimento (Acesso restrito: Master)."""
+    """Calcula e retorna as métricas de atendimento. Acesso restrito aos administradores (Master)."""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("role") != "master":
-            raise HTTPException(status_code=403, detail="Acesso negado.")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado.")
     except Exception:
-        raise HTTPException(status_code=401, detail="Token inválido")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
         
     tickets = db.query(TicketDB).all()
     total_atendimentos = len(tickets)
@@ -260,19 +271,22 @@ def get_metrics(token: str, db: Session = Depends(get_db)):
     }
 
 
+# ==========================================
+# ROTAS DA API: EXPORTAÇÃO E HISTÓRICO
+# ==========================================
 @app.get("/api/export/clients")
 def export_clients(token: str, db: Session = Depends(get_db)):
-    """Exporta a base de tickets/clientes em formato CSV (Acesso restrito: Master)."""
+    """Exporta a base de tickets/clientes em formato CSV. Acesso restrito."""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("role") != "master":
-            raise HTTPException(status_code=403, detail="Acesso negado.")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado.")
     except Exception:
-        raise HTTPException(status_code=401, detail="Token inválido")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
         
     tickets = db.query(TicketDB).all()
     output = io.StringIO()
-    output.write('\ufeff')  # BOM para Excel reconhecer acentos
+    output.write('\ufeff')  # Inclusão de BOM para o Excel reconhecer a codificação UTF-8
     
     writer = csv.writer(output, delimiter=';') 
     writer.writerow([
@@ -296,13 +310,13 @@ def export_clients(token: str, db: Session = Depends(get_db)):
 
 @app.get("/api/export/history")
 def export_history(token: str, db: Session = Depends(get_db)):
-    """Exporta todas as mensagens do sistema em formato CSV (Acesso restrito: Master)."""
+    """Exporta todas as mensagens do sistema em formato CSV (Auditoria)."""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("role") != "master":
-            raise HTTPException(status_code=403, detail="Acesso negado.")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado.")
     except Exception:
-        raise HTTPException(status_code=401, detail="Token inválido")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
         
     messages = db.query(MessageDB).all()
     output = io.StringIO()
@@ -324,7 +338,7 @@ def export_history(token: str, db: Session = Depends(get_db)):
 
 @app.get("/api/history/{session_id}")
 def get_chat_history(session_id: str, db: Session = Depends(get_db)):
-    """Busca o histórico de mensagens de uma sessão específica."""
+    """Busca o histórico completo de mensagens de uma sessão de atendimento específica."""
     mensagens = db.query(MessageDB).filter(
         MessageDB.sender.contains(session_id) | MessageDB.content.contains(session_id)
     ).all()
@@ -332,10 +346,10 @@ def get_chat_history(session_id: str, db: Session = Depends(get_db)):
 
 
 # ==========================================
-# HELPERS DE WEBSOCKET / SISTEMA DE FILA
+# LÓGICA DE NEGÓCIO E FILA DE ATENDIMENTO
 # ==========================================
-def get_next_attendant():
-    """Retorna o próximo atendente disponível usando lógica Round-Robin."""
+def get_next_attendant() -> str:
+    """Implementa a lógica Round-Robin para retornar o próximo atendente disponível."""
     global round_robin_index
     if not online_attendants: 
         return "Fila"
@@ -349,7 +363,7 @@ def get_next_attendant():
 
 
 async def broadcast_online_attendants():
-    """Avisa todos os painéis conectados sobre quem está online no momento."""
+    """Notifica todos os painéis conectados sobre os atendentes atualmente online."""
     lista_str = ",".join(online_attendants)
     for ws, info in list(connected_users.items()):
         if info["session_id"].startswith("painel_"):
@@ -359,8 +373,8 @@ async def broadcast_online_attendants():
                 pass
 
 
-async def realocar_tickets(nome_atendente_saindo, db: Session):
-    """Redistribui tickets de um atendente que se desconectou."""
+async def realocar_tickets(nome_atendente_saindo: str, db: Session):
+    """Redistribui os tickets de um atendente que encerrou a conexão ou turno."""
     for sid, dados in list(active_tickets.items()):
         if dados['atendente'] == nome_atendente_saindo and dados['status'] == 'ativo':
             novo_atendente = get_next_attendant()
@@ -368,7 +382,8 @@ async def realocar_tickets(nome_atendente_saindo, db: Session):
             save_or_update_ticket(db, sid, dados)
             
             if novo_atendente != "Fila":
-                await enviar_para_cliente(sid, "Sistema", f"O especialista anterior encerrou o turno. Você foi transferido para {novo_atendente}.")
+                mensagem_cliente = f"O especialista anterior encerrou o turno. Você foi transferido para {novo_atendente}."
+                await enviar_para_cliente(sid, "Sistema", mensagem_cliente)
                 
                 msg_crm = (f"{sid}|{dados['nome']}|{dados['email']}|{dados['whats']}|"
                            f"{dados['protocolo']}|ativo|{novo_atendente}|"
@@ -376,18 +391,19 @@ async def realocar_tickets(nome_atendente_saindo, db: Session):
                 await enviar_para_paineis(msg_crm, target_atendente=novo_atendente)
                 await atualizar_posicoes_fila(novo_atendente)
             else:
-                await enviar_para_cliente(sid, "Sistema", "O atendente encerrou o turno. Você retornou para a fila e será atendido assim que um especialista conectar.")
+                mensagem_retorno = "O atendente encerrou o turno. Você retornou para a fila e será atendido assim que um especialista conectar."
+                await enviar_para_cliente(sid, "Sistema", mensagem_retorno)
 
 
-async def enviar_para_paineis(mensagem, target_atendente=None):
-    """Envia uma mensagem para o painel do atendente alvo (ou para o master, que vê tudo)."""
+async def enviar_para_paineis(mensagem: str, target_atendente: str = None):
+    """Dispara uma mensagem para o painel de um atendente específico ou administradores."""
     for ws, info in list(connected_users.items()):
         sid = info["session_id"]
         if sid.startswith("painel_"):
             nome_painel = sid.replace("painel_", "")
             role_painel = info["role"]
             
-            # Master recebe tudo
+            # Administradores recebem todas as atualizações
             if role_painel == "master":
                 try: 
                     await ws.send_text(mensagem)
@@ -407,8 +423,8 @@ async def enviar_para_paineis(mensagem, target_atendente=None):
                 pass
 
 
-async def enviar_para_cliente(cliente_sid, remetente, mensagem):
-    """Roteia a mensagem de volta para o WebSocket do cliente correspondente."""
+async def enviar_para_cliente(cliente_sid: str, remetente: str, mensagem: str):
+    """Roteia a resposta ou mensagem de sistema de volta para o cliente final."""
     texto_formatado = f"{cliente_sid}|{remetente}|{mensagem}"
     for ws, info in list(connected_users.items()):
         if info["session_id"] == cliente_sid:
@@ -418,8 +434,8 @@ async def enviar_para_cliente(cliente_sid, remetente, mensagem):
                 pass
 
 
-async def atualizar_posicoes_fila(atendente_alvo):
-    """Calcula e informa a posição atual do cliente na fila do seu respectivo atendente."""
+async def atualizar_posicoes_fila(atendente_alvo: str):
+    """Calcula e notifica o cliente sobre a sua posição na fila de espera."""
     tickets_do_atendente = [
         sid for sid, dados in active_tickets.items() 
         if dados['status'] == 'ativo' and dados['atendente'] == atendente_alvo
@@ -433,19 +449,24 @@ async def atualizar_posicoes_fila(atendente_alvo):
 
 
 # ==========================================
-# ENDPOINT PRINCIPAL DO WEBSOCKET
+# ENDPOINT WEBSOCKET: COMUNICAÇÃO CENTRAL
 # ==========================================
 @app.websocket("/ws/chat/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str = None, db: Session = Depends(get_db)):
+async def websocket_endpoint(
+    websocket: WebSocket, 
+    session_id: str, 
+    token: str = None, 
+    db: Session = Depends(get_db)
+):
     """
-    Controlador principal de WebSockets para clientes e painéis.
-    Gerencia conexão, roteamento de mensagens (CLIENT_DATA, ATENDENTE_REPLY, etc.) e desconexão.
+    Controlador central de WebSockets para clientes e painéis.
+    Gerencia eventos de conexão, roteamento de pacotes (dados e comandos) e desconexão.
     """
     is_attendant = session_id.startswith("painel_")
     nome_atendente = ""
     role = "cliente"
     
-    # 1. VALIDAÇÃO DE AUTENTICAÇÃO (Se for atendente/master)
+    # Validação de Autenticação para atendentes e administradores
     if is_attendant:
         if not token:
             await websocket.close(code=1008)
@@ -463,18 +484,19 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
             await websocket.close(code=1008)
             return
 
-    # 2. CONEXÃO BÁSICA
+    # Efetivação da conexão
     await manager.connect(websocket)
     connected_users[websocket] = {"session_id": session_id, "role": role}
     
-    # 3. ROTINAS DE ENTRADA DO ATENDENTE
+    # Lógica de registro para novos atendentes ao entrarem online
     if is_attendant:
         if role != "master":
-            # Marca online e puxa da fila de espera
+            # Marca o status do atendente como online
             if nome_atendente not in online_attendants:
                 online_attendants.append(nome_atendente)
                 await broadcast_online_attendants() 
                 
+            # Verifica e puxa clientes que estão alocados na fila geral
             for sid, dados in active_tickets.items():
                 if dados['status'] == 'ativo' and dados['atendente'] == 'Fila':
                     dados['atendente'] = nome_atendente
@@ -486,7 +508,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                                f"{dados['protocolo']}|ativo|{nome_atendente}|[UPDATE_ATENDENTE]")
                     await enviar_para_paineis(msg_crm, target_atendente=nome_atendente)
                     
-        # Restaura chamados ativos na tela
+        # Restauração de chamados ativos na interface do atendente
         for sid, dados in active_tickets.items():
             if role == "master" or dados['atendente'] == nome_atendente:
                 msg_crm = (f"{sid}|{dados['nome']}|{dados['email']}|{dados['whats']}|"
@@ -497,7 +519,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                 except Exception: 
                     pass
 
-        # Restaura chamados encerrados do histórico daquele atendente
+        # Restauração do histórico de chamados encerrados do atendente
         closed_tickets = db.query(TicketDB).filter(TicketDB.status == "encerrado")
         if role != "master":
             closed_tickets = closed_tickets.filter(TicketDB.atendente == nome_atendente)
@@ -511,12 +533,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
             except Exception: 
                 pass
             
-    # 4. LOOP DE RECEBIMENTO DE MENSAGENS
+    # Loop contínuo de recepção e roteamento de pacotes
     try:
         while True:
             data = await websocket.receive_text()
             
-            # --- MENSAGEM DO CLIENTE ---
+            # --- ROTEAMENTO: Mensagem oriunda do cliente ---
             if data.startswith("CLIENT_DATA|"):
                 parts = data.split("|", 4) 
                 nome = parts[1]
@@ -524,7 +546,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                 whatsapp = parts[3]
                 msg = parts[4]
                 
-                # Inicializa ticket novo, se não existir
+                # Gera novo ticket caso a sessão não esteja mapeada
                 if session_id not in active_tickets:
                     protocolo = f"PRT-{datetime.now().year}{datetime.now().month:02d}-{random.randint(1000, 9999)}"
                     atendente_sorteado = get_next_attendant()
@@ -536,13 +558,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                 
                 dados_ticket = active_tickets[session_id]
                 
-                # Salva no banco de histórico de mensagens
+                # Persistência da mensagem na auditoria do banco de dados
                 identificador = f"Cliente:{nome} ({session_id})"
                 nova_msg = MessageDB(sender=identificador, content=f"[{dados_ticket['protocolo']}] Msg: {msg}")
                 db.add(nova_msg)
                 db.commit()
                 
-                # Envia protocolo caso seja a primeira interação real
+                # Envio do protocolo na primeira interação válida do cliente
                 if msg != "[ENTROU NO CHAT]" and not dados_ticket["protocolo_informado"]:
                     msg_sistema = f"Atendimento iniciado. Seu protocolo é {dados_ticket['protocolo']}."
                     if dados_ticket['atendente'] != "Fila":
@@ -554,7 +576,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                     dados_ticket["protocolo_informado"] = True
                     await atualizar_posicoes_fila(dados_ticket['atendente'])
 
-                # Cliente fechou o atendimento
+                # Cliente encerrou o chamado pelo seu próprio painel
                 if msg == "[CLIENTE ENCERROU O ATENDIMENTO]":
                     active_tickets[session_id]['status'] = 'encerrado'
                     save_or_update_ticket(db, session_id, dados_ticket)
@@ -564,14 +586,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                     await enviar_para_paineis(msg_crm, target_atendente=dados_ticket['atendente'])
                     await atualizar_posicoes_fila(dados_ticket['atendente'])
                 else:
-                    # Roteia mensagem para atendente e espelha no cliente
+                    # Envio padrão de mensagem: Roteia para atendente e reflete no cliente
                     msg_crm = (f"{session_id}|{nome}|{dados_ticket['email']}|{dados_ticket['whats']}|"
                                f"{dados_ticket['protocolo']}|{dados_ticket['status']}|"
                                f"{dados_ticket['atendente']}|{msg}")
                     await enviar_para_paineis(msg_crm, target_atendente=dados_ticket['atendente'])
                     await enviar_para_cliente(session_id, nome, msg)
                 
-            # --- RESPOSTA DO ATENDENTE ---
+            # --- ROTEAMENTO: Mensagem de resposta do atendente ---
             elif data.startswith("ATENDENTE_REPLY|"):
                 parts = data.split("|", 2) 
                 target_session_id = parts[1]
@@ -591,7 +613,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                     
                 await enviar_para_cliente(target_session_id, "Atendente", msg)
 
-            # --- COMANDO: TRANSFERIR CHAT ---
+            # --- COMANDO DE SISTEMA: Transferir Chat ---
             elif data.startswith("CMD_TRANSFERIR|"):
                 parts = data.split("|", 2)
                 target_session_id = parts[1]
@@ -617,7 +639,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                     await enviar_para_paineis(msg_crm, target_atendente=novo_atendente)
                     await atualizar_posicoes_fila(novo_atendente)
 
-            # --- COMANDO: INSERIR NOTA INTERNA ---
+            # --- COMANDO DE SISTEMA: Inserir Nota Interna ---
             elif data.startswith("CMD_NOTA|"):
                 parts = data.split("|", 2)
                 target_session_id = parts[1]
@@ -636,7 +658,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                     msg_crm = f"{target_session_id}|Sistema_Nota|- |- |- |ativo|{atendente_atual}|[{nome_quem_anotou}]: {nota}"
                     await enviar_para_paineis(msg_crm, target_atendente=atendente_atual)
 
-            # --- COMANDO: ENCERRAR CHAT ---
+            # --- COMANDO DE SISTEMA: Encerrar Chat ---
             elif data.startswith("CMD_ENCERRAR|"):
                 parts = data.split("|", 1)
                 target_session_id = parts[1]
@@ -661,21 +683,21 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                     await enviar_para_cliente(target_session_id, "Sistema", "O atendente encerrou esta conversa. Obrigado!")
                     await atualizar_posicoes_fila(atendente_responsavel)
 
-            # --- COMANDO: LOGOUT DO ATENDENTE ---
+            # --- COMANDO DE SISTEMA: Logout de Atendente ---
             elif data.startswith("CMD_LOGOUT|"):
                 if nome_atendente in online_attendants:
                     online_attendants.remove(nome_atendente)
                     await broadcast_online_attendants()
                     await realocar_tickets(nome_atendente, db)
 
-    # 5. GERENCIAMENTO DE DESCONEXÕES GERAIS
+    # Tratamento de interrupção ou perda de conexão da rede
     except WebSocketDisconnect:
         manager.disconnect(websocket)
         if websocket in connected_users:
             info = connected_users[websocket]
             del connected_users[websocket]
         
-        # Desconexão de Atendente
+        # Desconexão de Atendente (Painel)
         if is_attendant:
             if role != "master":
                 still_online = any(u["session_id"] == session_id for u in connected_users.values())
@@ -684,7 +706,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                     await broadcast_online_attendants()
                     await realocar_tickets(nome_atendente, db)
                     
-        # Desconexão de Cliente
+        # Desconexão do Cliente Final (Browser do cliente fechado)
         else:
             if session_id in active_tickets and active_tickets[session_id]['status'] == 'ativo':
                 active_tickets[session_id]['status'] = 'encerrado'
@@ -692,7 +714,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                 atendente_responsavel = dados_ticket['atendente']
                 save_or_update_ticket(db, session_id, dados_ticket)
 
-                nova_msg_sys = MessageDB(sender=f"Sistema_{session_id}", content="O cliente fechou a página ou perdeu a conexão.")
+                nova_msg_sys = MessageDB(
+                    sender=f"Sistema_{session_id}", 
+                    content="O cliente fechou a página ou perdeu a conexão."
+                )
                 db.add(nova_msg_sys)
                 db.commit()
 
@@ -703,4 +728,4 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, token: str =
                 await atualizar_posicoes_fila(atendente_responsavel)
 
     except RuntimeError:
-        pass  # Evita crash ao iterar sobre websockets que caíram repentinamente
+        pass  # Evita crash da aplicação caso o iterador do websocket perca a referência subitamente
