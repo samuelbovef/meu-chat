@@ -283,7 +283,7 @@ def export_clients(token: str, db: Session = Depends(get_db)):
     writer = csv.writer(output, delimiter=';') 
     writer.writerow([
         "Data", "Nome", "Email", "WhatsApp", 
-        "Protocolo", "Status", "Ultimo Atendente", "CSAT (Nota)", "Resolvido?"
+        "Protocolo", "Status", "UltimA atendente", "CSAT (Nota)", "Resolvido?"
     ])
     
     for t in tickets:
@@ -348,7 +348,7 @@ def get_chat_history(session_id: str, token: str, db: Session = Depends(get_db))
 # LÓGICA DE NEGÓCIO E FILA DE ATENDIMENTO
 # ==========================================
 def get_next_attendant() -> str:
-    """Implementa a lógica Round-Robin para retornar o próximo atendente disponível."""
+    """Implementa a lógica Round-Robin para retornar o próximA atendente disponível."""
     global round_robin_index
     if not online_attendants: 
         return "Fila"
@@ -381,7 +381,7 @@ async def realocar_tickets(nome_atendente_saindo: str, db: Session):
             save_or_update_ticket(db, sid, dados)
             
             if novo_atendente != "Fila":
-                mensagem_cliente = f"O especialista anterior encerrou o turno. Você foi transferido para {novo_atendente}."
+                mensagem_cliente = f"A especialista anterior encerrou o turno. Você foi transferido para {novo_atendente}."
                 await enviar_para_cliente(sid, "Sistema", mensagem_cliente)
                 
                 msg_crm = (f"{sid}|{dados['nome']}|{dados['email']}|{dados['whats']}|"
@@ -390,7 +390,7 @@ async def realocar_tickets(nome_atendente_saindo: str, db: Session):
                 await enviar_para_paineis(msg_crm, target_atendente=novo_atendente)
                 await atualizar_posicoes_fila(novo_atendente)
             else:
-                mensagem_retorno = "O atendente encerrou o turno. Você retornou para a fila e será atendido assim que um especialista conectar."
+                mensagem_retorno = "A atendente encerrou o turno. Você retornou para a fila e será atendido assim que uma especialista conectar."
                 await enviar_para_cliente(sid, "Sistema", mensagem_retorno)
 
 
@@ -444,7 +444,7 @@ async def atualizar_posicoes_fila(atendente_alvo: str):
         if posicao_real > 1: 
             await enviar_para_cliente(sid, "Sistema", f"A fila andou! Sua posição atual é: {posicao_real - 1}º a ser atendido.")
         elif posicao_real == 1:
-            await enviar_para_cliente(sid, "Sistema", "Você é o próximo da fila! O atendente já vai falar com você.")
+            await enviar_para_cliente(sid, "Sistema", "Você é o(a) próximo(a) da fila da fila! A atendente já vai falar com você.")
 
 
 # ==========================================
@@ -491,7 +491,7 @@ async def websocket_endpoint(
     try:
         if is_attendant:
             if role != "master":
-                # Marca o status do atendente como online
+                # Marca o status dA atendente como online
                 if nome_atendente not in online_attendants:
                     online_attendants.append(nome_atendente)
                     await broadcast_online_attendants() 
@@ -501,14 +501,14 @@ async def websocket_endpoint(
                     if dados['status'] == 'ativo' and dados['atendente'] == 'Fila':
                         dados['atendente'] = nome_atendente
                         save_or_update_ticket(db_startup, sid, dados)
-                        await enviar_para_cliente(sid, "Sistema", f"O especialista {nome_atendente} assumiu seu atendimento.")
+                        await enviar_para_cliente(sid, "Sistema", f"A especialista {nome_atendente} assumiu seu atendimento.")
                         await atualizar_posicoes_fila(nome_atendente)
                         
                         msg_crm = (f"{sid}|Sistema|{dados['email']}|{dados['whats']}|"
                                    f"{dados['protocolo']}|ativo|{nome_atendente}|[UPDATE_ATENDENTE]")
                         await enviar_para_paineis(msg_crm, target_atendente=nome_atendente)
                         
-            # Restauração de chamados ativos na interface do atendente
+            # Restauração de chamados ativos na interface dA atendente
             for sid, dados in active_tickets.items():
                 if role == "master" or dados['atendente'] == nome_atendente:
                     msg_crm = (f"{sid}|{dados['nome']}|{dados['email']}|{dados['whats']}|"
@@ -519,7 +519,7 @@ async def websocket_endpoint(
                     except Exception: 
                         pass
 
-            # Restauração do histórico de chamados encerrados do atendente
+            # Restauração do histórico de chamados encerrados dA atendente
             closed_tickets = db_startup.query(TicketDB).filter(TicketDB.status == "encerrado")
             if role != "master":
                 closed_tickets = closed_tickets.filter(TicketDB.atendente == nome_atendente)
@@ -578,9 +578,9 @@ async def websocket_endpoint(
                     if msg != "[ENTROU NO CHAT]" and not dados_ticket["protocolo_informado"]:
                         msg_sistema = f"Atendimento iniciado. Seu protocolo é {dados_ticket['protocolo']}."
                         if dados_ticket['atendente'] != "Fila":
-                            msg_sistema += f" O(a) atendente {dados_ticket['atendente']} falará com você em instantes!"
+                            msg_sistema += f" A atendente {dados_ticket['atendente']} falará com você em instantes!"
                         else:
-                            msg_sistema += " Aguarde o próximo especialista disponível."
+                            msg_sistema += " Aguarde a próxima especialista disponível."
                             
                         await enviar_para_cliente(session_id, "Sistema", msg_sistema)
                         dados_ticket["protocolo_informado"] = True
@@ -602,7 +602,7 @@ async def websocket_endpoint(
                         await enviar_para_paineis(msg_crm, target_atendente=dados_ticket['atendente'])
                         await enviar_para_cliente(session_id, nome, msg)
                 
-                # --- ROTEAMENTO: Mensagem de resposta do atendente ---
+                # --- ROTEAMENTO: Mensagem de resposta dA atendente ---
                 elif data.startswith("ATENDENTE_REPLY|"):
                     parts = data.split("|", 2) 
                     target_session_id = parts[1]
@@ -641,7 +641,7 @@ async def websocket_endpoint(
                         db_loop.add(nova_msg_sys)
                         db_loop.commit()
 
-                        await enviar_para_cliente(target_session_id, "Sistema", f"Você está sendo transferido para o especialista {novo_atendente}.")
+                        await enviar_para_cliente(target_session_id, "Sistema", f"Você está sendo transferido para a especialista {novo_atendente}.")
                         msg_crm = (f"{target_session_id}|{dados_ticket['nome']}|{dados_ticket['email']}|"
                                    f"{dados_ticket['whats']}|{dados_ticket['protocolo']}|ativo|{novo_atendente}|"
                                    f"[Sistema: Sessão Transferida de {atendente_antigo}]")
@@ -680,7 +680,7 @@ async def websocket_endpoint(
                         
                         nova_msg_sys = MessageDB(
                             sender=f"Sistema_{target_session_id}", 
-                            content=f"Atendimento encerrado pelo especialista {session_id.replace('painel_', '')}."
+                            content=f"Atendimento encerrado pela especialista {session_id.replace('painel_', '')}."
                         )
                         db_loop.add(nova_msg_sys)
                         db_loop.commit()
@@ -689,7 +689,7 @@ async def websocket_endpoint(
                                    f"{dados_ticket['protocolo']}|encerrado|{atendente_responsavel}|"
                                    "Atendimento finalizado com sucesso.")
                         await enviar_para_paineis(msg_crm, target_atendente=None)
-                        await enviar_para_cliente(target_session_id, "Sistema", "O atendente encerrou esta conversa. Obrigado!")
+                        await enviar_para_cliente(target_session_id, "Sistema", "A atendente encerrou esta conversa. Obrigada!")
                         await atualizar_posicoes_fila(atendente_responsavel)
 
                 # --- COMANDO DE SISTEMA: Logout de Atendente ---
