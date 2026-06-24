@@ -190,7 +190,7 @@ document.addEventListener("DOMContentLoaded", function() {
             this.innerText = "Enviando...";
             this.disabled = true;
 
-            fetch(`http://localhost:8000/api/feedback/${sessionId}`, {
+            fetch(`https://[url host]/api/feedback/${sessionId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ avaliacao: notaSelecionada, resolvido: resolvido })
@@ -264,7 +264,7 @@ document.addEventListener("DOMContentLoaded", function() {
        CONEXÃO COM WEBSOCKET DO SERVIDOR
        ========================================== */
     function conectarServidor() {
-        ws = new WebSocket('ws://localhost:8000/ws/chat/' + sessionId);
+        ws = new WebSocket('wss://[url host]/ws/chat/' + sessionId);
 
         ws.onopen = () => {
             addMessage('Sistema', 'Conectado! Um atendente falará com você em breve.', 'msg-sistema');
