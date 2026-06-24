@@ -52,24 +52,16 @@ app = FastAPI(
 # ==========================================
 # CONFIGURAÇÃO DE SEGURANÇA E CORS
 # ==========================================
+origens_raw = os.getenv("ALLOWED_ORIGINS")
+ORIGENS_PERMITIDAS = [origem.strip() for origem in origens_raw.split(",")] if origens_raw else []
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=ORIGENS_PERMITIDAS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
-
-
-@app.options("/{rest_of_path:path}")
-async def preflight_handler(request, rest_of_path: str):
-    """Interceptador para requisições de preflight (CORS) do navegador."""
-    response = Response()
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    return response
 
 
 # ==========================================
