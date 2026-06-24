@@ -329,10 +329,17 @@ def export_history(token: str, db: Session = Depends(get_db)):
 
 
 @app.get("/api/history/{session_id}")
-def get_chat_history(session_id: str, db: Session = Depends(get_db)):
+def get_chat_history(session_id: str, token: str, db: Session = Depends(get_db)):
     """Busca o histórico completo de mensagens de uma sessão de atendimento específica."""
+    # 1. Valida se quem está chamando a rota é um atendente/master logado
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+        
+    # 2. Busca exata para evitar que uma string curta vaze dados de outros chats
     mensagens = db.query(MessageDB).filter(
-        MessageDB.sender.contains(session_id) | MessageDB.content.contains(session_id)
+        MessageDB.sender.like(f"%({session_id})%") | MessageDB.content.contains(session_id)
     ).all()
     return mensagens
 
@@ -447,8 +454,7 @@ async def atualizar_posicoes_fila(atendente_alvo: str):
 async def websocket_endpoint(
     websocket: WebSocket, 
     session_id: str, 
-    token: str = None, 
-    db: Session = Depends(get_db)
+    token: str = None
 ):
     """
     Controlador central de WebSockets para clientes e painéis.
@@ -481,206 +487,222 @@ async def websocket_endpoint(
     connected_users[websocket] = {"session_id": session_id, "role": role}
     
     # Lógica de registro para novos atendentes ao entrarem online
-    if is_attendant:
-        if role != "master":
-            # Marca o status do atendente como online
-            if nome_atendente not in online_attendants:
-                online_attendants.append(nome_atendente)
-                await broadcast_online_attendants() 
-                
-            # Verifica e puxa clientes que estão alocados na fila geral
+    db_startup = SessionLocal()
+    try:
+        if is_attendant:
+            if role != "master":
+                # Marca o status do atendente como online
+                if nome_atendente not in online_attendants:
+                    online_attendants.append(nome_atendente)
+                    await broadcast_online_attendants() 
+                    
+                # Verifica e puxa clientes que estão alocados na fila geral
+                for sid, dados in active_tickets.items():
+                    if dados['status'] == 'ativo' and dados['atendente'] == 'Fila':
+                        dados['atendente'] = nome_atendente
+                        save_or_update_ticket(db_startup, sid, dados)
+                        await enviar_para_cliente(sid, "Sistema", f"O especialista {nome_atendente} assumiu seu atendimento.")
+                        await atualizar_posicoes_fila(nome_atendente)
+                        
+                        msg_crm = (f"{sid}|Sistema|{dados['email']}|{dados['whats']}|"
+                                   f"{dados['protocolo']}|ativo|{nome_atendente}|[UPDATE_ATENDENTE]")
+                        await enviar_para_paineis(msg_crm, target_atendente=nome_atendente)
+                        
+            # Restauração de chamados ativos na interface do atendente
             for sid, dados in active_tickets.items():
-                if dados['status'] == 'ativo' and dados['atendente'] == 'Fila':
-                    dados['atendente'] = nome_atendente
-                    save_or_update_ticket(db, sid, dados)
-                    await enviar_para_cliente(sid, "Sistema", f"O especialista {nome_atendente} assumiu seu atendimento.")
-                    await atualizar_posicoes_fila(nome_atendente)
-                    
-                    msg_crm = (f"{sid}|Sistema|{dados['email']}|{dados['whats']}|"
-                               f"{dados['protocolo']}|ativo|{nome_atendente}|[UPDATE_ATENDENTE]")
-                    await enviar_para_paineis(msg_crm, target_atendente=nome_atendente)
-                    
-        # Restauração de chamados ativos na interface do atendente
-        for sid, dados in active_tickets.items():
-            if role == "master" or dados['atendente'] == nome_atendente:
-                msg_crm = (f"{sid}|{dados['nome']}|{dados['email']}|{dados['whats']}|"
-                           f"{dados['protocolo']}|{dados['status']}|{dados['atendente']}|"
+                if role == "master" or dados['atendente'] == nome_atendente:
+                    msg_crm = (f"{sid}|{dados['nome']}|{dados['email']}|{dados['whats']}|"
+                               f"{dados['protocolo']}|{dados['status']}|{dados['atendente']}|"
+                               "[Sistema: Sessão Restaurada]")
+                    try: 
+                        await websocket.send_text(msg_crm)
+                    except Exception: 
+                        pass
+
+            # Restauração do histórico de chamados encerrados do atendente
+            closed_tickets = db_startup.query(TicketDB).filter(TicketDB.status == "encerrado")
+            if role != "master":
+                closed_tickets = closed_tickets.filter(TicketDB.atendente == nome_atendente)
+            
+            for t in closed_tickets.all():
+                msg_crm = (f"{t.session_id}|{t.nome}|{t.email}|{t.whats}|"
+                           f"{t.protocolo}|{t.status}|{t.atendente}|"
                            "[Sistema: Sessão Restaurada]")
                 try: 
                     await websocket.send_text(msg_crm)
                 except Exception: 
                     pass
-
-        # Restauração do histórico de chamados encerrados do atendente
-        closed_tickets = db.query(TicketDB).filter(TicketDB.status == "encerrado")
-        if role != "master":
-            closed_tickets = closed_tickets.filter(TicketDB.atendente == nome_atendente)
-        
-        for t in closed_tickets.all():
-            msg_crm = (f"{t.session_id}|{t.nome}|{t.email}|{t.whats}|"
-                       f"{t.protocolo}|{t.status}|{t.atendente}|"
-                       "[Sistema: Sessão Restaurada]")
-            try: 
-                await websocket.send_text(msg_crm)
-            except Exception: 
-                pass
+    finally:
+        db_startup.close()
             
     # Loop contínuo de recepção e roteamento de pacotes
     try:
         while True:
             data = await websocket.receive_text()
             
-            # --- ROTEAMENTO: Mensagem oriunda do cliente ---
-            if data.startswith("CLIENT_DATA|"):
-                parts = data.split("|", 4) 
-                nome = parts[1]
-                email = parts[2]
-                whatsapp = parts[3]
-                msg = parts[4]
-                
-                # Gera novo ticket caso a sessão não esteja mapeada
-                if session_id not in active_tickets:
-                    protocolo = f"PRT-{datetime.now().year}{datetime.now().month:02d}-{random.randint(1000, 9999)}"
-                    atendente_sorteado = get_next_attendant()
-                    active_tickets[session_id] = {
-                        "nome": nome, "protocolo": protocolo, "email": email, "whats": whatsapp,
-                        "status": "ativo", "atendente": atendente_sorteado, "protocolo_informado": False 
-                    }
-                    save_or_update_ticket(db, session_id, active_tickets[session_id])
-                
-                dados_ticket = active_tickets[session_id]
-                
-                # Persistência da mensagem na auditoria do banco de dados
-                identificador = f"Cliente:{nome} ({session_id})"
-                nova_msg = MessageDB(sender=identificador, content=f"[{dados_ticket['protocolo']}] Msg: {msg}")
-                db.add(nova_msg)
-                db.commit()
-                
-                # Envio do protocolo na primeira interação válida do cliente
-                if msg != "[ENTROU NO CHAT]" and not dados_ticket["protocolo_informado"]:
-                    msg_sistema = f"Atendimento iniciado. Seu protocolo é {dados_ticket['protocolo']}."
-                    if dados_ticket['atendente'] != "Fila":
-                        msg_sistema += f" O(a) atendente {dados_ticket['atendente']} falará com você em instantes!"
-                    else:
-                        msg_sistema += " Aguarde o próximo especialista disponível."
+            # Instancia o banco exclusivamente para esta mensagem
+            db_loop = SessionLocal()
+            try:
+                # --- ROTEAMENTO: Mensagem oriunda do cliente ---
+                if data.startswith("CLIENT_DATA|"):
+                    parts = data.split("|", 4) 
+                    
+                    # Trava de Segurança: Se os dados vierem corrompidos, ignora para não derrubar o servidor
+                    if len(parts) < 5:
+                        continue
                         
-                    await enviar_para_cliente(session_id, "Sistema", msg_sistema)
-                    dados_ticket["protocolo_informado"] = True
-                    await atualizar_posicoes_fila(dados_ticket['atendente'])
-
-                # Cliente encerrou o chamado pelo seu próprio painel
-                if msg == "[CLIENTE ENCERROU O ATENDIMENTO]":
-                    active_tickets[session_id]['status'] = 'encerrado'
-                    save_or_update_ticket(db, session_id, dados_ticket)
-                    msg_crm = (f"{session_id}|Sistema|{dados_ticket['email']}|{dados_ticket['whats']}|"
-                               f"{dados_ticket['protocolo']}|encerrado|{dados_ticket['atendente']}|"
-                               "[CLIENTE ENCERROU O ATENDIMENTO]")
-                    await enviar_para_paineis(msg_crm, target_atendente=dados_ticket['atendente'])
-                    await atualizar_posicoes_fila(dados_ticket['atendente'])
-                else:
-                    # Envio padrão de mensagem: Roteia para atendente e reflete no cliente
-                    msg_crm = (f"{session_id}|{nome}|{dados_ticket['email']}|{dados_ticket['whats']}|"
-                               f"{dados_ticket['protocolo']}|{dados_ticket['status']}|"
-                               f"{dados_ticket['atendente']}|{msg}")
-                    await enviar_para_paineis(msg_crm, target_atendente=dados_ticket['atendente'])
-                    await enviar_para_cliente(session_id, nome, msg)
+                    nome = parts[1]
+                    email = parts[2]
+                    whatsapp = parts[3]
+                    msg = parts[4]
                 
-            # --- ROTEAMENTO: Mensagem de resposta do atendente ---
-            elif data.startswith("ATENDENTE_REPLY|"):
-                parts = data.split("|", 2) 
-                target_session_id = parts[1]
-                msg = parts[2]
-                
-                nova_msg = MessageDB(sender="Atendente", content=f"Para {target_session_id}: {msg}")
-                db.add(nova_msg)
-                db.commit()
-                
-                if target_session_id in active_tickets:
-                    dados_ticket = active_tickets[target_session_id]
-                    nome_quem_respondeu = session_id.replace("painel_", "")
-                    msg_crm = (f"{target_session_id}|{nome_quem_respondeu}|{dados_ticket['email']}|"
-                               f"{dados_ticket['whats']}|{dados_ticket['protocolo']}|"
-                               f"{dados_ticket['status']}|{dados_ticket['atendente']}|{msg}")
-                    await enviar_para_paineis(msg_crm, target_atendente=dados_ticket['atendente'])
+                    # Gera novo ticket caso a sessão não esteja mapeada
+                    if session_id not in active_tickets:
+                        protocolo = f"PRT-{datetime.now().year}{datetime.now().month:02d}-{random.randint(1000, 9999)}"
+                        atendente_sorteado = get_next_attendant()
+                        active_tickets[session_id] = {
+                            "nome": nome, "protocolo": protocolo, "email": email, "whats": whatsapp,
+                            "status": "ativo", "atendente": atendente_sorteado, "protocolo_informado": False 
+                        }
+                        save_or_update_ticket(db_loop, session_id, active_tickets[session_id])
                     
-                await enviar_para_cliente(target_session_id, "Atendente", msg)
-
-            # --- COMANDO DE SISTEMA: Transferir Chat ---
-            elif data.startswith("CMD_TRANSFERIR|"):
-                parts = data.split("|", 2)
-                target_session_id = parts[1]
-                novo_atendente = parts[2]
-                
-                if target_session_id in active_tickets and novo_atendente in online_attendants:
-                    dados_ticket = active_tickets[target_session_id]
-                    atendente_antigo = dados_ticket['atendente']
-                    dados_ticket['atendente'] = novo_atendente
-                    save_or_update_ticket(db, target_session_id, dados_ticket)
+                    dados_ticket = active_tickets[session_id]
                     
-                    nova_msg_sys = MessageDB(
-                        sender=f"Sistema_{target_session_id}", 
-                        content=f"Atendimento transferido de {atendente_antigo} para {novo_atendente}."
+                    # Persistência da mensagem na auditoria do banco de dados
+                    identificador = f"Cliente:{nome} ({session_id})"
+                    nova_msg = MessageDB(sender=identificador, content=f"[{dados_ticket['protocolo']}] Msg: {msg}")
+                    db_loop.add(nova_msg)
+                    db_loop.commit()
+                    
+                    # Envio do protocolo na primeira interação válida do cliente
+                    if msg != "[ENTROU NO CHAT]" and not dados_ticket["protocolo_informado"]:
+                        msg_sistema = f"Atendimento iniciado. Seu protocolo é {dados_ticket['protocolo']}."
+                        if dados_ticket['atendente'] != "Fila":
+                            msg_sistema += f" O(a) atendente {dados_ticket['atendente']} falará com você em instantes!"
+                        else:
+                            msg_sistema += " Aguarde o próximo especialista disponível."
+                            
+                        await enviar_para_cliente(session_id, "Sistema", msg_sistema)
+                        dados_ticket["protocolo_informado"] = True
+                        await atualizar_posicoes_fila(dados_ticket['atendente'])
+
+                    # Cliente encerrou o chamado pelo seu próprio painel
+                    if msg == "[CLIENTE ENCERROU O ATENDIMENTO]":
+                        active_tickets[session_id]['status'] = 'encerrado'
+                        save_or_update_ticket(db_loop, session_id, dados_ticket)
+                        msg_crm = (f"{session_id}|Sistema|{dados_ticket['email']}|{dados_ticket['whats']}|"
+                                   f"{dados_ticket['protocolo']}|encerrado|{dados_ticket['atendente']}|"
+                                   "[CLIENTE ENCERROU O ATENDIMENTO]")
+                        await enviar_para_paineis(msg_crm, target_atendente=dados_ticket['atendente'])
+                        await atualizar_posicoes_fila(dados_ticket['atendente'])
+                    else:
+                        msg_crm = (f"{session_id}|{nome}|{dados_ticket['email']}|{dados_ticket['whats']}|"
+                                   f"{dados_ticket['protocolo']}|{dados_ticket['status']}|"
+                                   f"{dados_ticket['atendente']}|{msg}")
+                        await enviar_para_paineis(msg_crm, target_atendente=dados_ticket['atendente'])
+                        await enviar_para_cliente(session_id, nome, msg)
+                
+                # --- ROTEAMENTO: Mensagem de resposta do atendente ---
+                elif data.startswith("ATENDENTE_REPLY|"):
+                    parts = data.split("|", 2) 
+                    target_session_id = parts[1]
+                    msg = parts[2]
+                    
+                    nova_msg = MessageDB(sender="Atendente", content=f"Para {target_session_id}: {msg}")
+                    db_loop.add(nova_msg)
+                    db_loop.commit()
+                    
+                    if target_session_id in active_tickets:
+                        dados_ticket = active_tickets[target_session_id]
+                        nome_quem_respondeu = session_id.replace("painel_", "")
+                        msg_crm = (f"{target_session_id}|{nome_quem_respondeu}|{dados_ticket['email']}|"
+                                   f"{dados_ticket['whats']}|{dados_ticket['protocolo']}|"
+                                   f"{dados_ticket['status']}|{dados_ticket['atendente']}|{msg}")
+                        await enviar_para_paineis(msg_crm, target_atendente=dados_ticket['atendente'])
+                        
+                    await enviar_para_cliente(target_session_id, "Atendente", msg)
+
+                # --- COMANDO DE SISTEMA: Transferir Chat ---
+                elif data.startswith("CMD_TRANSFERIR|"):
+                    parts = data.split("|", 2)
+                    target_session_id = parts[1]
+                    novo_atendente = parts[2]
+                    
+                    if target_session_id in active_tickets and novo_atendente in online_attendants:
+                        dados_ticket = active_tickets[target_session_id]
+                        atendente_antigo = dados_ticket['atendente']
+                        dados_ticket['atendente'] = novo_atendente
+                        save_or_update_ticket(db_loop, target_session_id, dados_ticket)
+                        
+                        nova_msg_sys = MessageDB(
+                            sender=f"Sistema_{target_session_id}", 
+                            content=f"Atendimento transferido de {atendente_antigo} para {novo_atendente}."
+                        )
+                        db_loop.add(nova_msg_sys)
+                        db_loop.commit()
+
+                        await enviar_para_cliente(target_session_id, "Sistema", f"Você está sendo transferido para o especialista {novo_atendente}.")
+                        msg_crm = (f"{target_session_id}|{dados_ticket['nome']}|{dados_ticket['email']}|"
+                                   f"{dados_ticket['whats']}|{dados_ticket['protocolo']}|ativo|{novo_atendente}|"
+                                   f"[Sistema: Sessão Transferida de {atendente_antigo}]")
+                        await enviar_para_paineis(msg_crm, target_atendente=novo_atendente)
+                        await atualizar_posicoes_fila(novo_atendente)
+
+                # --- COMANDO DE SISTEMA: Inserir Nota Interna ---
+                elif data.startswith("CMD_NOTA|"):
+                    parts = data.split("|", 2)
+                    target_session_id = parts[1]
+                    nota = parts[2]
+                    nome_quem_anotou = session_id.replace("painel_", "")
+                    
+                    nova_msg = MessageDB(
+                        sender=f"Sistema_Nota_{target_session_id}", 
+                        content=f"[{nome_quem_anotou}]: {nota}"
                     )
-                    db.add(nova_msg_sys)
-                    db.commit()
-
-                    await enviar_para_cliente(target_session_id, "Sistema", f"Você está sendo transferido para o especialista {novo_atendente}.")
-                    msg_crm = (f"{target_session_id}|{dados_ticket['nome']}|{dados_ticket['email']}|"
-                               f"{dados_ticket['whats']}|{dados_ticket['protocolo']}|ativo|{novo_atendente}|"
-                               f"[Sistema: Sessão Transferida de {atendente_antigo}]")
-                    await enviar_para_paineis(msg_crm, target_atendente=novo_atendente)
-                    await atualizar_posicoes_fila(novo_atendente)
-
-            # --- COMANDO DE SISTEMA: Inserir Nota Interna ---
-            elif data.startswith("CMD_NOTA|"):
-                parts = data.split("|", 2)
-                target_session_id = parts[1]
-                nota = parts[2]
-                nome_quem_anotou = session_id.replace("painel_", "")
-                
-                nova_msg = MessageDB(
-                    sender=f"Sistema_Nota_{target_session_id}", 
-                    content=f"[{nome_quem_anotou}]: {nota}"
-                )
-                db.add(nova_msg)
-                db.commit()
-                
-                if target_session_id in active_tickets:
-                    atendente_atual = active_tickets[target_session_id]['atendente']
-                    msg_crm = f"{target_session_id}|Sistema_Nota|- |- |- |ativo|{atendente_atual}|[{nome_quem_anotou}]: {nota}"
-                    await enviar_para_paineis(msg_crm, target_atendente=atendente_atual)
-
-            # --- COMANDO DE SISTEMA: Encerrar Chat ---
-            elif data.startswith("CMD_ENCERRAR|"):
-                parts = data.split("|", 1)
-                target_session_id = parts[1]
-                
-                if target_session_id in active_tickets:
-                    active_tickets[target_session_id]["status"] = "encerrado"
-                    dados_ticket = active_tickets[target_session_id]
-                    atendente_responsavel = dados_ticket['atendente']
-                    save_or_update_ticket(db, target_session_id, dados_ticket)
+                    db_loop.add(nova_msg)
+                    db_loop.commit()
                     
-                    nova_msg_sys = MessageDB(
-                        sender=f"Sistema_{target_session_id}", 
-                        content=f"Atendimento encerrado pelo especialista {session_id.replace('painel_', '')}."
-                    )
-                    db.add(nova_msg_sys)
-                    db.commit()
+                    if target_session_id in active_tickets:
+                        atendente_atual = active_tickets[target_session_id]['atendente']
+                        msg_crm = f"{target_session_id}|Sistema_Nota|- |- |- |ativo|{atendente_atual}|[{nome_quem_anotou}]: {nota}"
+                        await enviar_para_paineis(msg_crm, target_atendente=atendente_atual)
 
-                    msg_crm = (f"{target_session_id}|Sistema|{dados_ticket['email']}|{dados_ticket['whats']}|"
-                               f"{dados_ticket['protocolo']}|encerrado|{atendente_responsavel}|"
-                               "Atendimento finalizado com sucesso.")
-                    await enviar_para_paineis(msg_crm, target_atendente=None)
-                    await enviar_para_cliente(target_session_id, "Sistema", "O atendente encerrou esta conversa. Obrigado!")
-                    await atualizar_posicoes_fila(atendente_responsavel)
+                # --- COMANDO DE SISTEMA: Encerrar Chat ---
+                elif data.startswith("CMD_ENCERRAR|"):
+                    parts = data.split("|", 1)
+                    target_session_id = parts[1]
+                    
+                    if target_session_id in active_tickets:
+                        active_tickets[target_session_id]["status"] = "encerrado"
+                        dados_ticket = active_tickets[target_session_id]
+                        atendente_responsavel = dados_ticket['atendente']
+                        save_or_update_ticket(db_loop, target_session_id, dados_ticket)
+                        
+                        nova_msg_sys = MessageDB(
+                            sender=f"Sistema_{target_session_id}", 
+                            content=f"Atendimento encerrado pelo especialista {session_id.replace('painel_', '')}."
+                        )
+                        db_loop.add(nova_msg_sys)
+                        db_loop.commit()
 
-            # --- COMANDO DE SISTEMA: Logout de Atendente ---
-            elif data.startswith("CMD_LOGOUT|"):
-                if nome_atendente in online_attendants:
-                    online_attendants.remove(nome_atendente)
-                    await broadcast_online_attendants()
-                    await realocar_tickets(nome_atendente, db)
+                        msg_crm = (f"{target_session_id}|Sistema|{dados_ticket['email']}|{dados_ticket['whats']}|"
+                                   f"{dados_ticket['protocolo']}|encerrado|{atendente_responsavel}|"
+                                   "Atendimento finalizado com sucesso.")
+                        await enviar_para_paineis(msg_crm, target_atendente=None)
+                        await enviar_para_cliente(target_session_id, "Sistema", "O atendente encerrou esta conversa. Obrigado!")
+                        await atualizar_posicoes_fila(atendente_responsavel)
+
+                # --- COMANDO DE SISTEMA: Logout de Atendente ---
+                elif data.startswith("CMD_LOGOUT|"):
+                    if nome_atendente in online_attendants:
+                        online_attendants.remove(nome_atendente)
+                        await broadcast_online_attendants()
+                        await realocar_tickets(nome_atendente, db_loop)
+
+            except Exception:
+                pass
+            finally:
+                db_loop.close()  # Isso garante que a conexão será encerrada e retornada ao pool
 
     # Tratamento de interrupção ou perda de conexão da rede
     except WebSocketDisconnect:
@@ -688,36 +710,40 @@ async def websocket_endpoint(
         if websocket in connected_users:
             info = connected_users[websocket]
             del connected_users[websocket]
-        
-        # Desconexão de Atendente (Painel)
-        if is_attendant:
-            if role != "master":
-                still_online = any(u["session_id"] == session_id for u in connected_users.values())
-                if not still_online and nome_atendente in online_attendants:
-                    online_attendants.remove(nome_atendente)
-                    await broadcast_online_attendants()
-                    await realocar_tickets(nome_atendente, db)
-                    
-        # Desconexão do Cliente Final (Browser do cliente fechado)
-        else:
-            if session_id in active_tickets and active_tickets[session_id]['status'] == 'ativo':
-                active_tickets[session_id]['status'] = 'encerrado'
-                dados_ticket = active_tickets[session_id]
-                atendente_responsavel = dados_ticket['atendente']
-                save_or_update_ticket(db, session_id, dados_ticket)
+            
+        db_disconnect = SessionLocal()
+        try:
+            # Desconexão de Atendente (Painel)
+            if is_attendant:
+                if role != "master":
+                    still_online = any(u["session_id"] == session_id for u in connected_users.values())
+                    if not still_online and nome_atendente in online_attendants:
+                        online_attendants.remove(nome_atendente)
+                        await broadcast_online_attendants()
+                        await realocar_tickets(nome_atendente, db_disconnect)
+                        
+            # Desconexão do Cliente Final (Browser do cliente fechado)
+            else:
+                if session_id in active_tickets and active_tickets[session_id]['status'] == 'ativo':
+                    active_tickets[session_id]['status'] = 'encerrado'
+                    dados_ticket = active_tickets[session_id]
+                    atendente_responsavel = dados_ticket['atendente']
+                    save_or_update_ticket(db_disconnect, session_id, dados_ticket)
 
-                nova_msg_sys = MessageDB(
-                    sender=f"Sistema_{session_id}", 
-                    content="O cliente fechou a página ou perdeu a conexão."
-                )
-                db.add(nova_msg_sys)
-                db.commit()
+                    nova_msg_sys = MessageDB(
+                        sender=f"Sistema_{session_id}", 
+                        content="O cliente fechou a página ou perdeu a conexão."
+                    )
+                    db_disconnect.add(nova_msg_sys)
+                    db_disconnect.commit()
 
-                msg_crm = (f"{session_id}|Sistema|{dados_ticket['email']}|{dados_ticket['whats']}|"
-                           f"{dados_ticket['protocolo']}|encerrado|{atendente_responsavel}|"
-                           "[CLIENTE ENCERROU O ATENDIMENTO]")
-                await enviar_para_paineis(msg_crm, target_atendente=None) 
-                await atualizar_posicoes_fila(atendente_responsavel)
+                    msg_crm = (f"{session_id}|Sistema|{dados_ticket['email']}|{dados_ticket['whats']}|"
+                               f"{dados_ticket['protocolo']}|encerrado|{atendente_responsavel}|"
+                               "[CLIENTE ENCERROU O ATENDIMENTO]")
+                    await enviar_para_paineis(msg_crm, target_atendente=None) 
+                    await atualizar_posicoes_fila(atendente_responsavel)
+        finally:
+            db_disconnect.close()
 
     except RuntimeError:
         pass  # Evita crash da aplicação caso o iterador do websocket perca a referência subitamente
