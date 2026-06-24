@@ -69,6 +69,16 @@ Contribuições são extremamente bem-vindas. Se você deseja ajudar a melhorar 
 
 Certifique-se de seguir os padrões de código estabelecidos e manter a estabilidade do sistema ao propor alterações.
 
-## Licença
+## Suporte e Serviços
 
-Este projeto é distribuído sob a licença MIT.
+Para negociação de parcerias, serviços de **Consultoria de Implantação** ou atendimento comercial, acesse a minha Central.
+
+<div align="center">
+
+[![Central de Atendimento](https://img.shields.io/badge/ACESSAR_CENTRAL_DE_ATENDIMENTO-24292e?style=for-the-badge&logo=github&logoColor=white)](https://github.com/samuelbovef/suporte)
+
+</div>
+
+---
+
+Distribuído sob a licença **MIT**. É permitida a utilização, modificação e distribuição comercial, desde que mantidos os avisos originais.
