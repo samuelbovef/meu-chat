@@ -173,7 +173,7 @@ def register_attendant(
     db: Session = Depends(get_db)
 ):
     """Registra novos atendentes com validação dinâmica via chave mestra."""
-    chave_verdadeira = os.getenv("REGISTRATION_MASTER_KEY", "REGISTRATION_MASTER_KEY")
+    chave_verdadeira = os.getenv("REGISTRATION_MASTER_KEY")
     
     if master_key != chave_verdadeira:
         raise HTTPException(
