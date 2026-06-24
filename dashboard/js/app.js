@@ -117,7 +117,7 @@ document.addEventListener("DOMContentLoaded", () => {
             formData.append('username', name);
             formData.append('password', password);
 
-            const response = await fetch("https://[url hospedagem]/login", {
+            const response = await fetch("https://[url host]/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 body: formData
@@ -178,7 +178,7 @@ document.addEventListener("DOMContentLoaded", () => {
             metricsPanel.style.display = "block";
 
             try {
-                const response = await fetch(`https://[url hospedagem]/api/dados-painel?token=${jwtToken}`);
+                const response = await fetch(`https://[url host]/api/dados-painel?token=${jwtToken}`);
                 const data = await response.json();
 
                 document.getElementById("metric-total").innerText = data.total_atendimentos;
@@ -257,13 +257,13 @@ document.addEventListener("DOMContentLoaded", () => {
        ========================================== */
     if (btnExportClients) {
         btnExportClients.onclick = () => {
-            window.open(`https://[url hospedagem]/api/export/clients?token=${jwtToken}`, '_blank');
+            window.open(`https://[url host]/api/export/clients?token=${jwtToken}`, '_blank');
         };
     }
     
     if (btnExportHistory) {
         btnExportHistory.onclick = () => {
-            window.open(`https://[url hospedagem]/api/export/history?token=${jwtToken}`, '_blank');
+            window.open(`https://[url host]/api/export/history?token=${jwtToken}`, '_blank');
         };
     }
 
@@ -271,7 +271,7 @@ document.addEventListener("DOMContentLoaded", () => {
        CONFIGURAÇÃO DO WEBSOCKET
        ========================================== */
     function conectarServidor() {
-        ws = new WebSocket(`wss://[url hospedagem]/ws/chat/painel_${attendantName}?token=${jwtToken}`);
+        ws = new WebSocket(`wss://[url host]/ws/chat/painel_${attendantName}?token=${jwtToken}`);
 
         ws.onopen = () => {
             console.log("Logado no sistema.");
@@ -537,7 +537,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Recuperação do Histórico de Conversa
         if (!chats[sessaoId].historicoCarregado) {
             try {
-                const response = await fetch(`https://[url hospedagem]/api/history/${sessaoId}`);
+                const response = await fetch(`https://[url host]/api/history/${sessaoId}`);
                 if (response.ok) {
                     const historico = await response.json();
                     const mensagensRestauradas = [];
