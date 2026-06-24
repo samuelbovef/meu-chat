@@ -1,6 +1,20 @@
+/**
+ * ==========================================
+ * APP.JS - CLIENTE FRONT-END DO DASHBOARD
+ * ==========================================
+ * Controlador principal da interface do painel de atendimento.
+ * Gerencia o DOM, conexões WebSocket, gráficos (Chart.js), autenticação
+ * e o sistema de notificações push/áudio.
+ */
+
 /* ==========================================
    FUNÇÕES GLOBAIS
    ========================================== */
+
+/**
+ * Abre uma imagem codificada em Base64 em uma nova aba do navegador.
+ * @param {string} base64Data - String contendo os dados da imagem em base64.
+ */
 window.abrirImagemEmNovaGuia = function(base64Data) {
     fetch(base64Data)
         .then(res => res.blob())
@@ -12,10 +26,13 @@ window.abrirImagemEmNovaGuia = function(base64Data) {
 };
 
 /* ==========================================
-   INICIALIZAÇÃO DA APLICAÇÃO
+   INICIALIZAÇÃO DA APLICAÇÃO E VARIÁVEIS
    ========================================== */
 document.addEventListener("DOMContentLoaded", () => {
-    // Referências de Elementos - Telas e Autenticação
+    
+    // --- REFERÊNCIAS DO DOM ---
+    
+    // Telas e Autenticação
     const loginScreen = document.getElementById("login-screen");
     const dashboardScreen = document.getElementById("dashboard-screen");
     const attendantNameInput = document.getElementById("attendant-name");
@@ -23,27 +40,27 @@ document.addEventListener("DOMContentLoaded", () => {
     const uiAttendantName = document.getElementById("ui-attendant-name");
     const btnLogout = document.getElementById("btn-logout");
 
-    // Referências de Elementos - Painéis
+    // Painéis Principais
     const chatPanel = document.getElementById("chat-panel");
     const metricsPanel = document.getElementById("metrics-panel");
     const btnShowMetrics = document.getElementById("btn-show-metrics");
     const btnCloseMetrics = document.getElementById("btn-close-metrics");
 
-    // Referências de Elementos - Área de Chat
+    // Área de Chat (Mensagens)
     const messagesArea = document.getElementById("messages-area");
     const messageInput = document.getElementById("message-input");
     const sendBtn = document.getElementById("send-btn");
     const currentChatTitle = document.getElementById("current-chat-title");
     const currentChatProtocol = document.getElementById("current-chat-protocol");
     
-    // Referências de Elementos - Painel CRM
+    // Painel CRM (Lateral Direita)
     const crmPanel = document.getElementById("crm-panel");
     const crmNome = document.getElementById("crm-nome");
     const crmEmail = document.getElementById("crm-email");
     const crmWhats = document.getElementById("crm-whats");
     const btnEncerrarAtendimento = document.getElementById("btn-encerrar-atendimento");
     
-    // Referências de Elementos - Ações CRM
+    // Ações do CRM
     const transferArea = document.getElementById("transfer-area");
     const transferSelect = document.getElementById("transfer-select");
     const btnTransferir = document.getElementById("btn-transferir");
@@ -53,7 +70,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const fileInput = document.getElementById("attendant-file-input");
     const attachBtn = document.getElementById("attendant-attach-btn");
 
-    // Referências de Elementos - Abas e Listas
+    // Abas e Listagem Lateral (Fila)
     const btnAtivas = document.getElementById("tab-ativas");
     const btnEncerrados = document.getElementById("tab-encerrados");
     const areaAtivas = document.getElementById("area-ativas");
@@ -62,12 +79,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const listEncerrados = document.getElementById("closed-list");
     const searchProtocol = document.getElementById("search-protocol");
     
-    // Referências de Elementos - Ações Master
+    // Ações exclusivas do modo Master
     const masterActions = document.getElementById("master-actions");
     const btnExportClients = document.getElementById("btn-export-clients");
     const btnExportHistory = document.getElementById("btn-export-history");
 
-    // Configurações de Atalho de Mensagem
+    // --- CONFIGURAÇÕES DE ATALHO DE MENSAGEM ---
     const respostasRapidas = {
         "/saudacao": "Olá! Seja muito bem-vindo ao nosso atendimento. Como posso ajudar você hoje?",
         "/aguarde": "Por favor, aguarde um momento enquanto verifico essa informação no nosso sistema.",
@@ -75,7 +92,7 @@ document.addEventListener("DOMContentLoaded", () => {
         "/pix": "Nossa chave PIX (CNPJ) é: 00.000.000/0001-00. Por favor, nos envie o comprovante por aqui assim que realizar a transferência."
     };
 
-    // Estado da Aplicação
+    // --- ESTADO GLOBAL DA APLICAÇÃO ---
     let chats = {}; 
     let activeSessionId = null;
     let currentTab = "ativas";
@@ -87,7 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let jwtToken = sessionStorage.getItem("jwtToken") || "";
     let userRole = sessionStorage.getItem("userRole") || "atendente"; 
     
-    // Auto-Login se os dados estiverem na sessão
+    // Auto-Login se houver sessão válida armazenada no navegador
     if (attendantName && jwtToken) {
         uiAttendantName.innerText = userRole === 'master' ? `Master: ${attendantName}` : attendantName;
         if (userRole === 'master' && masterActions) {
@@ -99,7 +116,40 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     /* ==========================================
-       LÓGICA DE AUTENTICAÇÃO E SESSÃO
+       SISTEMA DE NOTIFICAÇÕES (ÁUDIO E PUSH)
+       ========================================== */
+    // Pede permissão ao sistema operacional logo que o painel carregar
+    if (Notification.permission === "default") {
+        Notification.requestPermission();
+    }
+
+    /**
+     * Dispara um aviso sonoro e um balão visual de notificação.
+     * @param {string} remetente - Nome de quem enviou a mensagem.
+     * @param {string} texto - Prévia da mensagem.
+     */
+    function dispararNotificacao(remetente, texto) {
+        // 1. Toca o alerta sonoro "Plim"
+        const audio = new Audio("https://cdn.pixabay.com/download/audio/2021/08/04/audio_0625c1539c.mp3?filename=success-1-6297.mp3");
+        audio.play().catch(e => console.log("Áudio bloqueado até o usuário interagir com a tela."));
+
+        // 2. Dispara o balão na tela do computador
+        if (Notification.permission === "granted") {
+            const notificacao = new Notification(`Nova mensagem de: ${remetente}`, {
+                body: texto.length > 50 ? texto.substring(0, 50) + "..." : texto,
+                icon: "https://cdn-icons-png.flaticon.com/512/1041/1041916.png"
+            });
+            
+            // Se clicar no balão, a aba do painel abre e ganha o foco
+            notificacao.onclick = () => {
+                window.focus();
+                notificacao.close();
+            };
+        }
+    }
+
+    /* ==========================================
+       LÓGICA DE AUTENTICAÇÃO
        ========================================== */
     btnLogin.onclick = async () => {
         const name = attendantNameInput.value.trim();
@@ -169,7 +219,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     /* ==========================================
-       LÓGICA DO DASHBOARD DE MÉTRICAS
+       LÓGICA DO DASHBOARD DE MÉTRICAS E EXPORTAÇÃO
        ========================================== */
     if (btnShowMetrics) {
         btnShowMetrics.onclick = async () => {
@@ -178,7 +228,8 @@ document.addEventListener("DOMContentLoaded", () => {
             metricsPanel.style.display = "block";
 
             try {
-                const response = await fetch(`https://meu-chat-h2rw.onrender.com/api/metrics?token=${jwtToken}`);
+                // Rota atualizada (/api/dados-painel) para evitar bloqueio do Kaspersky (Erro 499)
+                const response = await fetch(`https://meu-chat-h2rw.onrender.com/api/dados-painel?token=${jwtToken}`);
                 const data = await response.json();
 
                 document.getElementById("metric-total").innerText = data.total_atendimentos;
@@ -252,9 +303,6 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     }
 
-    /* ==========================================
-       LÓGICA DE EXPORTAÇÃO
-       ========================================== */
     if (btnExportClients) {
         btnExportClients.onclick = () => {
             window.open(`https://meu-chat-h2rw.onrender.com/api/export/clients?token=${jwtToken}`, '_blank');
@@ -270,6 +318,9 @@ document.addEventListener("DOMContentLoaded", () => {
     /* ==========================================
        CONFIGURAÇÃO DO WEBSOCKET
        ========================================== */
+    /**
+     * Estabelece e gerencia a conexão bidirecional via WebSocket com o servidor.
+     */
     function conectarServidor() {
         ws = new WebSocket(`wss://meu-chat-h2rw.onrender.com/ws/chat/painel_${attendantName}?token=${jwtToken}`);
 
@@ -300,6 +351,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 if (msgSessao.startsWith('painel_')) return; 
 
+                // Registra a sessão se for nova
                 if (!chats[msgSessao]) {
                     chats[msgSessao] = {
                         nome: (msgRemetente !== 'Atendente' && msgRemetente !== 'Sistema_Nota' && msgRemetente !== 'Sistema') ? msgRemetente : 'Cliente',
@@ -345,6 +397,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 if (!isRestoredMsg && !isTransferMsg) {
                     chats[msgSessao].messages.push({ sender: msgRemetente, text: msgTexto });
+                    
+                    // --- DISPARO DE NOTIFICAÇÃO ---
+                    if (msgRemetente !== attendantName && msgRemetente !== 'Sistema' && msgRemetente !== 'Sistema_Nota') {
+                        if (document.hidden || activeSessionId !== msgSessao) {
+                            dispararNotificacao(msgRemetente, msgTexto);
+                        }
+                    }
                 }
 
                 if (activeSessionId === msgSessao) {
@@ -363,6 +422,11 @@ document.addEventListener("DOMContentLoaded", () => {
     /* ==========================================
        GESTÃO DE ESTADOS E RENDERIZAÇÃO
        ========================================== */
+       
+    /**
+     * Atualiza o select de transferência com os atendentes online.
+     * @param {Array} users - Lista de atendentes conectados.
+     */
     function atualizarMenuTransferencia(users) {
         transferSelect.innerHTML = '<option value="">Selecione um colega...</option>';
         if (users.length === 0) {
@@ -380,6 +444,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    /**
+     * Verifica a fila e abre automaticamente o próximo chat ativo disponível.
+     */
     function verificarFilaEAtender() {
         if (userRole === 'master') return;
 
@@ -396,6 +463,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    /**
+     * Configura a tela de estado ocioso (aguardando cliente).
+     */
     function telaAguardando() {
         activeSessionId = null;
         currentChatTitle.innerText = userRole === 'master' ? "Painel de Auditoria" : "Aguardando próximo cliente...";
@@ -439,6 +509,10 @@ document.addEventListener("DOMContentLoaded", () => {
         renderClientList(e.target.value.trim());
     });
 
+    /**
+     * Renderiza a lista lateral de clientes (ativos ou encerrados).
+     * @param {string} searchQuery - Filtro opcional por protocolo.
+     */
     function renderClientList(searchQuery = '') {
         listAtivas.innerHTML = '';
         listEncerrados.innerHTML = '';
@@ -477,6 +551,10 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    /**
+     * Carrega as informações e o histórico de um chat específico na tela principal.
+     * @param {string} sessaoId - ID da sessão do cliente.
+     */
     async function abrirChatNaTela(sessaoId) {
         metricsPanel.style.display = "none";
         chatPanel.style.display = "flex";
@@ -558,6 +636,9 @@ document.addEventListener("DOMContentLoaded", () => {
         renderMessages(); 
     }
 
+    /**
+     * Renderiza visualmente os balões de mensagens na tela.
+     */
     function renderMessages() {
         messagesArea.innerHTML = '';
         if (!activeSessionId || !chats[activeSessionId]) return;
@@ -614,6 +695,7 @@ document.addEventListener("DOMContentLoaded", () => {
     /* ==========================================
        MANIPULADORES DE EVENTOS DE CHAT E AÇÕES
        ========================================== */
+       
     messageInput.addEventListener('input', (e) => {
         let texto = e.target.value;
         for (const [atalho, fraseCompleta] of Object.entries(respostasRapidas)) {
@@ -623,6 +705,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    /**
+     * Envia a mensagem digitada para o WebSocket.
+     */
     function sendMessage() {
         const text = messageInput.value.trim();
         if (text !== "" && activeSessionId) {
